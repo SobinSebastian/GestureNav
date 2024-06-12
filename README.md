@@ -1,6 +1,7 @@
 # GestureNavApp
 
 Hand Gesture Recognition for User Interface Control via Camera Feed
+#
 GestureNavApp is a Tkinter-based application that leverages hand gesture recognition to control various desktop functionalities. The application uses MediaPipe for hand landmark detection and a pre-trained scikit-learn model for gesture classification.
 
 ## Table of Contents
