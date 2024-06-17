@@ -1,0 +1,180 @@
+import tkinter as tk
+from ctypes import cast, POINTER
+from comtypes import CLSCTX_ALL
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+from PIL import Image, ImageTk
+import numpy as np
+import cv2
+import mediapipe as mp
+from joblib import load
+import pyautogui
+
+class GestureRecognition:
+    def __init__(self, parent):
+        self.parent = parent
+        self.cap = cv2.VideoCapture(0)
+        if not self.cap.isOpened():
+            print("Error opening video capture device.")
+            exit()
+
+        self.label_var = tk.StringVar()
+        self.label_var.set("Detected Gesture: None")
+        self.label = tk.Label(parent, textvariable=self.label_var, font=("Arial", 14))
+        self.label.pack(pady=10)
+
+        self.panel = tk.Label(parent)
+        self.panel.pack(padx=10, pady=10)
+
+        # Initialize MediaPipe Hands
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5)
+
+        # Load the trained model
+        try:
+            self.model = load('hand_gesture_model.joblib')
+        except FileNotFoundError:
+            print("Model file not found. Please ensure 'hand_gesture_model.joblib' is in the current directory.")
+            exit()
+
+        self.perform_gesture_recognition()
+
+    def extract_hand_landmarks(self, image):
+        results = self.hands.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        if results.multi_hand_landmarks:
+            return np.array([[landmark.x, landmark.y, landmark.z] for landmark in
+                             results.multi_hand_landmarks[0].landmark]).flatten()
+        else:
+            return None
+
+
+    def perform_gesture_recognition(self):
+        try:
+            ret, frame = self.cap.read()
+            if ret:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame = cv2.resize(frame, (640, 480))
+                frame = cv2.flip(frame, 1)
+
+                # Extract hand landmarks
+                landmarks = self.extract_hand_landmarks(frame)
+
+                if landmarks is not None:
+                    # Draw a rectangle around the detected hand
+                    x_min, y_min = np.min(landmarks.reshape(-1, 3), axis=0)[:2]
+                    x_max, y_max = np.max(landmarks.reshape(-1, 3), axis=0)[:2]
+                    cv2.rectangle(frame, (int(x_min * frame.shape[1]), int(y_min * frame.shape[0])),
+                                  (int(x_max * frame.shape[1]), int(y_max * frame.shape[0])), (0, 255, 0), 2)
+
+                    # Perform gesture recognition
+                    gesture = self.model.predict([landmarks])
+                    self.label_var.set(f"Detected Gesture: {gesture[0]}")
+                    if gesture[0] == "like":
+                        pyautogui.click(button='left')
+                    elif gesture[0] == "dislike":
+                        pyautogui.click(button='right')
+                    elif gesture[0] == "one":
+                        pyautogui.moveRel(5, 0)
+                    elif gesture[0] == "fist":
+                        pyautogui.moveRel(-5, 0)
+                    elif gesture[0] == "four":
+                        pyautogui.moveRel(0, -5)  # Move mouse upwards
+                    elif gesture[0] == "three":
+                        pyautogui.moveRel(0, 5)
+                else:
+                    self.label_var.set(f"Detected Gesture: None")
+
+                # Convert the frame back to RGB for displaying
+
+
+                # Convert the frame to ImageTk format for displaying in tkinter
+                img = Image.fromarray(frame)
+                imgtk = ImageTk.PhotoImage(image=img)
+                self.panel.imgtk = imgtk
+                self.panel.config(image=imgtk)
+
+        except Exception as e:
+            print(f"Error during gesture recognition: {e}")
+
+        self.parent.after(10, self.perform_gesture_recognition)
+    def stop_video_capture(self):
+        self.cap.release()
+        cv2.destroyAllWindows()
+
+
+class GestureNavApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("GestureNav")
+        self.geometry("400x300")
+
+        self.header_frame = tk.Frame(self, bg="#333")
+        self.header_frame.pack(side="top", fill="x")
+
+        self.menu_frame = tk.Frame(self, bg="#666")
+        self.menu_frame.pack(side="left", fill="y")
+
+        self.content_frame = tk.Frame(self, bg="#999")
+        self.content_frame.pack(side="right", fill="both", expand=True)
+
+        self.create_header()
+        self.create_menu()
+        self.create_pages()
+
+    def create_header(self):
+        header_label = tk.Label(self.header_frame, text="GestureNav", font=("Arial", 16), fg="white", bg="#333")
+        header_label.pack(pady=10)
+
+    def create_menu(self):
+        menu_options = ["Home", "Tools", "About"]
+        for option in menu_options:
+            option_btn = tk.Button(self.menu_frame, text=option, width=15, bg="#666", fg="white", font=("Arial", 10),
+                                   command=lambda opt=option: self.show_page(opt))
+            option_btn.pack(pady=5)
+
+    def create_pages(self):
+        self.pages = {}
+        for page_name in ["Home", "Tools", "About"]:
+            page = tk.Frame(self.content_frame, bg="#999")
+            self.pages[page_name] = page
+            if page_name == "Home":
+                self.create_home_page(page)
+            elif page_name == "Tools":
+                self.create_tools_page(page)
+            elif page_name == "About":
+                self.create_about_page(page)
+
+    def create_home_page(self, page):
+        GestureRecognition(page)
+        page_label = tk.Label(page, text="", font=("Arial", 12), bg="#999")
+        page_label.pack(fill="both", expand=True)
+
+    def create_tools_page(self, page):
+        volume_btn = tk.Button(page, text="Adjust Sound", width=15, bg="#666", fg="white", font=("Arial", 10),
+                                command=self.adjust_sound)
+        volume_btn.pack(pady=5)
+        page_label = tk.Label(page, text="Welcome to Tools Page", font=("Arial", 12), bg="#999")
+        page_label.pack(fill="both", expand=True)
+
+    def create_about_page(self, page):
+        page_label = tk.Label(page, text="Welcome to About Page", font=("Arial", 12), bg="#999")
+        page_label.pack(fill="both", expand=True)
+
+    def show_page(self, option):
+        for page_name, page in self.pages.items():
+            if option == page_name:
+                page.pack(fill="both", expand=True)
+            else:
+                page.pack_forget()
+    #
+    def adjust_sound(self):
+        pyautogui.press('volumeup', presses=10)
+        devices = AudioUtilities.GetSpeakers()
+        interface = devices.Activate(
+            IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        volume = cast(interface, POINTER(IAudioEndpointVolume))
+        # Adjust the volume
+        volume.SetMasterVolumeLevel(-20.0, None)
+
+if __name__ == "__main__":
+    app = GestureNavApp()
+    app.mainloop()
